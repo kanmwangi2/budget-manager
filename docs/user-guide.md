@@ -1,10 +1,10 @@
-# Cheetah Budgeting User Guide
+# Budget Manager User Guide
 
 Last updated: March 1, 2026
 
 ## 1. What This App Does
 
-Cheetah Budgeting is a multi-organization budget management app for non-profits with:
+Budget Manager is a multi-organization budget management app for non-profits with:
 
 - role-based access (`app_admin`, `org_admin`, `user`)
 - organization-scoped data access

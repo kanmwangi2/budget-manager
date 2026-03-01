@@ -68,7 +68,7 @@ const LoginPage: React.FC = () => {
             </svg>
           </div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            Sign in to Cheetah Budgeting
+            Sign in to Budget Manager
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
             Manage your organization's budget with ease

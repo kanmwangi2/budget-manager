@@ -1,10 +1,10 @@
-# Cheetah Budgeting Technical Blueprint
+# Budget Manager Technical Blueprint
 
 Last updated: March 1, 2026
 
 ## 1. Current Architecture
 
-Cheetah Budgeting is a two-tier web platform:
+Budget Manager is a two-tier web platform:
 
 - Frontend: React 18 + TypeScript + Vite
 - Backend: FastAPI + SQLAlchemy + Alembic

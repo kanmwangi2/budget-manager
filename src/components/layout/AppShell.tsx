@@ -49,7 +49,7 @@ const AppShell: React.FC = () => {
       '/admin/users': 'User Administration'
     }
 
-    return routeTitles[location.pathname] || routeTitles[basePath] || 'Cheetah Budgeting'
+    return routeTitles[location.pathname] || routeTitles[basePath] || 'Budget Manager'
   }, [location.pathname])
 
   const canAccessAdmin = currentUser?.role === 'app_admin' || currentUser?.role === 'org_admin'
@@ -128,7 +128,7 @@ const AppShell: React.FC = () => {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600">
               <Wallet className="h-5 w-5 text-white" />
             </div>
-            <h1 className="ml-3 text-lg font-bold text-gray-900 dark:text-white">Cheetah</h1>
+            <h1 className="ml-3 text-lg font-bold text-gray-900 dark:text-white">Budget Manager</h1>
           </div>
           <nav className="mt-6 flex-1 space-y-1 px-2">
             {navigation.map((item) => {
@@ -159,7 +159,7 @@ const AppShell: React.FC = () => {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600">
               <Wallet className="h-5 w-5 text-white" />
             </div>
-            <h1 className="ml-3 text-lg font-bold text-gray-900 dark:text-white">Cheetah</h1>
+            <h1 className="ml-3 text-lg font-bold text-gray-900 dark:text-white">Budget Manager</h1>
           </div>
 
           {selectedOrganization && (
