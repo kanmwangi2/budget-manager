@@ -1,12 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Building2, Users, ChevronRight } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { OrganizationSelection } from '../../types/user'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '../../services/firebase'
 import { useNavigate } from 'react-router-dom'
+import { organizationsApi } from '../../services/api'
 
 const OrganizationSelector: React.FC = () => {
   const { availableOrganizations, selectOrganization, currentUser, refreshOrganizations } = useAuth()
@@ -19,11 +18,19 @@ const OrganizationSelector: React.FC = () => {
   const [createLoading, setCreateLoading] = useState(false)
   const navigate = useNavigate()
 
+  useEffect(() => {
+    if (availableOrganizations.length === 1) {
+      setSelectedOrgId(availableOrganizations[0].id)
+      return
+    }
+    if (availableOrganizations.length > 1 && !selectedOrgId) {
+      setSelectedOrgId(availableOrganizations[0].id)
+    }
+  }, [availableOrganizations, selectedOrgId])
+
   const handleOrganizationSelect = (organization: OrganizationSelection) => {
-    console.log('OrganizationSelector: Selecting organization:', organization.name)
     selectOrganization(organization)
     showToast('success', `Selected ${organization.name}`)
-    console.log('OrganizationSelector: Navigating to dashboard')
     navigate('/')
   }
 
@@ -43,21 +50,10 @@ const OrganizationSelector: React.FC = () => {
     }
     setCreateLoading(true)
     try {
-      const docRef = await addDoc(collection(db, 'organizations'), {
+      const organization = await organizationsApi.create({
         name: newOrgName,
         country: newOrgCountry,
         currency: newOrgCurrency,
-        adminIds: [currentUser?.id],
-        memberIds: [currentUser?.id],
-        settings: {
-          fiscalYearStart: '2025-01-01',
-          approvalWorkflow: true,
-          multiCurrency: false,
-          complianceReporting: false
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        createdBy: currentUser?.id
       })
       showToast('success', 'Organization created!')
       setCreating(false)
@@ -65,7 +61,7 @@ const OrganizationSelector: React.FC = () => {
       setNewOrgCountry('')
       setNewOrgCurrency('')
       await refreshOrganizations()
-      setSelectedOrgId(docRef.id)
+      setSelectedOrgId(organization.id)
     } catch (err: any) {
       showToast('error', err.message || 'Failed to create organization')
     } finally {
@@ -73,7 +69,7 @@ const OrganizationSelector: React.FC = () => {
     }
   }
 
-  if (availableOrganizations.length === 0) {
+  if (availableOrganizations.length === 0 && currentUser?.role !== 'app_admin') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
@@ -83,20 +79,12 @@ const OrganizationSelector: React.FC = () => {
               No Organizations Available
             </h2>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              {currentUser?.role === 'app_admin' 
-                ? 'Create your first organization to get started.'
-                : 'You are not assigned to any organizations yet. Contact your administrator.'
-              }
+              You are not assigned to any organizations yet. Contact your administrator.
             </p>
           </div>
         </div>
       </div>
     )
-  }
-
-  if (availableOrganizations.length === 1) {
-    // Auto-select if only one organization (handled in AuthContext)
-    return null
   }
 
   return (
@@ -108,7 +96,7 @@ const OrganizationSelector: React.FC = () => {
             Select Organization
           </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Choose the organization you want to work with
+            Choose which assigned organization you want to work with for this session
           </p>
         </div>
 
@@ -181,7 +169,12 @@ const OrganizationSelector: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div className="space-y-4">
-            {availableOrganizations.map((org) => (
+            {availableOrganizations.length === 0 && currentUser?.role === 'app_admin' ? (
+              <div className="rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                Create your first organization to continue.
+              </div>
+            ) : (
+              availableOrganizations.map((org) => (
               <motion.div
                 key={org.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -259,16 +252,17 @@ const OrganizationSelector: React.FC = () => {
                   className="sr-only"
                 />
               </motion.div>
-            ))}
+              ))
+            )}
           </div>
 
           <div>
             <button
               type="submit"
-              disabled={!selectedOrgId}
+              disabled={!selectedOrgId || availableOrganizations.length === 0}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
             >
-              Continue to Dashboard
+              Continue
             </button>
           </div>
         </form>

@@ -10,21 +10,10 @@ import {
   Filter,
   MoreVertical
 } from 'lucide-react'
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy 
-} from 'firebase/firestore'
-import { db } from '../../services/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
-import { Organization } from '../../types/user'
+import { Organization, User } from '../../types/user'
+import { organizationsApi } from '../../services/api'
 
 interface OrganizationWithStats extends Organization {
   memberCount: number
@@ -49,57 +38,34 @@ const OrganizationManagement: React.FC = () => {
     currency: 'RWF'
   })
 
-  const canManageOrganizations = (user: any) => {
+  const canManageOrganizations = (user: User | null) => {
     return user?.role === 'app_admin'
   }
 
   const fetchOrganizations = useCallback(async () => {
     try {
       setLoading(true)
-      const orgsQuery = query(collection(db, 'organizations'), orderBy('name'))
-      const orgsSnapshot = await getDocs(orgsQuery)
-      
-      const orgData: OrganizationWithStats[] = []
-      
-      for (const orgDoc of orgsSnapshot.docs) {
-        const org = { id: orgDoc.id, ...orgDoc.data() } as Organization
-        
-        // Get member count
-        const membersQuery = query(
-          collection(db, 'users'),
-          where('organizationIds', 'array-contains', org.id)
-        )
-        const membersSnapshot = await getDocs(membersQuery)
-        const memberCount = membersSnapshot.size
-        
-        // Get admin count
-        const adminsQuery = query(
-          collection(db, 'users'),
-          where('organizationIds', 'array-contains', org.id),
-          where('role', '==', 'org_admin')
-        )
-        const adminsSnapshot = await getDocs(adminsQuery)
-        const adminCount = adminsSnapshot.size
-        
-        // Get department count
-        const deptsQuery = query(
-          collection(db, 'departments'),
-          where('organizationId', '==', org.id)
-        )
-        const deptsSnapshot = await getDocs(deptsQuery)
-        const departmentCount = deptsSnapshot.size
-        
-        orgData.push({
-          ...org,
-          memberCount,
-          adminCount,
-          departmentCount
-        })
-      }
-      
-      setOrganizations(orgData)
+      const response = await organizationsApi.list({ withStats: true })
+      const mapped = response.map((organization) => ({
+        id: organization.id,
+        name: organization.name,
+        description: organization.description,
+        country: organization.country,
+        currency: organization.currency,
+        adminIds: organization.admin_ids || [],
+        memberIds: organization.member_ids || [],
+        settings: organization.settings,
+        subscription: organization.subscription,
+        createdAt: new Date(organization.created_at),
+        updatedAt: new Date(organization.updated_at),
+        createdBy: organization.created_by || '',
+        memberCount: organization.member_count || 0,
+        adminCount: organization.admin_count || 0,
+        departmentCount: organization.department_count || 0
+      }))
+
+      setOrganizations(mapped)
     } catch (error) {
-      console.error('Error fetching organizations:', error)
       showToast('error', 'Failed to load organizations')
     } finally {
       setLoading(false)
@@ -113,7 +79,7 @@ const OrganizationManagement: React.FC = () => {
   // Check permissions
   if (!currentUser || !canManageOrganizations(currentUser)) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <Shield className="mx-auto h-12 w-12 text-gray-400" />
           <h2 className="mt-4 text-xl font-semibold text-gray-900 dark:text-white">
@@ -138,36 +104,20 @@ const OrganizationManagement: React.FC = () => {
     try {
       if (editingOrg) {
         // Update existing organization
-        await updateDoc(doc(db, 'organizations', editingOrg.id), {
+        await organizationsApi.update(editingOrg.id, {
           name: formData.name,
           description: formData.description,
           country: formData.country,
-          currency: formData.currency,
-          updatedAt: new Date()
+          currency: formData.currency
         })
         showToast('success', 'Organization updated successfully')
       } else {
         // Create new organization
-        await addDoc(collection(db, 'organizations'), {
+        await organizationsApi.create({
           name: formData.name,
           description: formData.description,
           country: formData.country,
-          currency: formData.currency,
-          adminIds: [currentUser!.id], // Creator becomes admin
-          memberIds: [currentUser!.id], // Creator is also a member
-          settings: {
-            fiscalYearStart: 'January',
-            approvalWorkflow: true,
-            multiCurrency: false,
-            complianceReporting: true
-          },
-          subscription: {
-            plan: 'free',
-            status: 'active'
-          },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          createdBy: currentUser!.id
+          currency: formData.currency
         })
         showToast('success', 'Organization created successfully')
       }
@@ -182,7 +132,6 @@ const OrganizationManagement: React.FC = () => {
       })
       fetchOrganizations()
     } catch (error) {
-      console.error('Error saving organization:', error)
       showToast('error', 'Failed to save organization')
     }
   }
@@ -204,11 +153,10 @@ const OrganizationManagement: React.FC = () => {
     }
 
     try {
-      await deleteDoc(doc(db, 'organizations', orgId))
+      await organizationsApi.delete(orgId)
       showToast('success', 'Organization deleted successfully')
       fetchOrganizations()
     } catch (error) {
-      console.error('Error deleting organization:', error)
       showToast('error', 'Failed to delete organization')
     }
   }
@@ -230,8 +178,7 @@ const OrganizationManagement: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -441,7 +388,6 @@ const OrganizationManagement: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }

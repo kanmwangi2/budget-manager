@@ -97,3 +97,11 @@ ui-debug.log
 
 # Local Netlify folder
 .netlify
+
+# Python backend
+backend/.venv/
+backend/.pytest_cache/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/*.db
+LOGIN_DETAILS.md

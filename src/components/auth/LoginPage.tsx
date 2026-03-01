@@ -10,7 +10,7 @@ const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   
-  const { login, clearSelectedOrganization } = useAuth()
+  const { login, resetPassword } = useAuth()
   const { showToast } = useNotifications()
   const location = useLocation()
   const navigate = useNavigate()
@@ -34,50 +34,27 @@ const LoginPage: React.FC = () => {
     setLoading(true)
 
     try {
-      console.log('LoginPage: Starting login process')
-      const user = await login(email, password)
-      console.log('LoginPage: login() result:', user)
-      clearSelectedOrganization()
-      console.log('LoginPage: Login successful, clearing organization selection')
+      await login(email, password)
       showToast('success', 'Welcome back!')
-      
-      // Add a small delay to ensure auth state is updated before navigation
-      console.log('LoginPage: Waiting for auth state update...')
-      setTimeout(() => {
-        console.log('LoginPage: Navigating to organization selector')
-        navigate('/select-organization', { replace: true })
-      }, 100)
+      navigate('/select-organization', { replace: true })
     } catch (error: any) {
-      console.error('LoginPage: Login failed:', error)
-      let errorMessage = 'Failed to login'
-      
-      if (error.code) {
-        switch (error.code) {
-          case 'auth/invalid-api-key':
-            errorMessage = 'Firebase configuration error. Please check your API key.'
-            break
-          case 'auth/user-not-found':
-            errorMessage = 'No account found with this email address.'
-            break
-          case 'auth/wrong-password':
-            errorMessage = 'Incorrect password.'
-            break
-          case 'auth/invalid-email':
-            errorMessage = 'Invalid email address.'
-            break
-          case 'auth/too-many-requests':
-            errorMessage = 'Too many failed attempts. Please try again later.'
-            break
-          default:
-            errorMessage = error.message || 'Failed to login'
-        }
-      } else if (error.message) {
-        errorMessage = error.message
-      }
-      
-      showToast('error', errorMessage)
+      showToast('error', error.message || 'Failed to login')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      showToast('info', 'Enter your email first, then click "Forgot your password?"')
+      return
+    }
+
+    try {
+      await resetPassword(email)
+      showToast('success', 'Password reset instructions have been sent if the account exists')
+    } catch (error: any) {
+      showToast('error', error.message || 'Failed to request password reset')
     }
   }
 
@@ -167,10 +144,7 @@ const LoginPage: React.FC = () => {
               <button
                 type="button"
                 className="font-medium text-primary-600 hover:text-primary-500 bg-transparent border-none cursor-pointer"
-                onClick={() => {
-                  // TODO: Implement forgot password functionality
-                  showToast('info', 'Forgot password feature coming soon!')
-                }}
+                onClick={handleForgotPassword}
               >
                 Forgot your password?
               </button>

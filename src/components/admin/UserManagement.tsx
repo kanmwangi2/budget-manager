@@ -10,24 +10,11 @@ import {
   CheckCircle,
   XCircle
 } from 'lucide-react'
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  getDocs, 
-  query, 
-  where, 
-  orderBy,
-  getDoc
-} from 'firebase/firestore'
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth'
-import { auth, db } from '../../services/firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { User as UserType, Organization, Department } from '../../types/user'
 import { getRoleDisplayName } from '../../utils/permissions'
+import { departmentsApi, organizationsApi, usersApi } from '../../services/api'
 
 interface UserWithDetails extends UserType {
   organizationNames: string[]
@@ -35,7 +22,7 @@ interface UserWithDetails extends UserType {
 }
 
 const UserManagement: React.FC = () => {
-  const { currentUser } = useAuth()
+  const { currentUser, selectedOrganization } = useAuth()
   const { showToast } = useNotifications()
   const [users, setUsers] = useState<UserWithDetails[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
@@ -56,143 +43,131 @@ const UserManagement: React.FC = () => {
     departmentIds: [] as string[]
   })
 
-  const canManageUsers = (user: any) => {
+  const canManageUsers = (user: UserType | null) => {
     return user?.role === 'app_admin' || user?.role === 'org_admin'
   }
 
   const fetchOrganizations = useCallback(async () => {
     try {
-      let orgsQuery
-      if (currentUser?.role === 'app_admin') {
-        orgsQuery = query(collection(db, 'organizations'), orderBy('name'))
-      } else if (currentUser?.role === 'org_admin') {
-        orgsQuery = query(
-          collection(db, 'organizations'),
-          where('adminIds', 'array-contains', currentUser.id),
-          orderBy('name')
-        )
-      } else {
+      if (!currentUser || (currentUser.role !== 'app_admin' && currentUser.role !== 'org_admin')) {
         return
       }
 
-      const orgsSnapshot = await getDocs(orgsQuery)
-      const orgData = orgsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Organization))
-      setOrganizations(orgData)
+      const orgData = await organizationsApi.list({
+        adminOnly: currentUser.role === 'org_admin'
+      })
+      const mappedOrganizations = orgData.map(
+        (org) =>
+          ({
+            id: org.id,
+            name: org.name,
+            description: org.description,
+            country: org.country,
+            currency: org.currency,
+            adminIds: org.admin_ids || [],
+            memberIds: org.member_ids || [],
+            settings: org.settings,
+            subscription: org.subscription,
+            createdAt: new Date(org.created_at),
+            updatedAt: new Date(org.updated_at),
+            createdBy: org.created_by || ''
+          }) as Organization
+      )
+
+      const scopedOrganizations = selectedOrganization
+        ? mappedOrganizations.filter((organization) => organization.id === selectedOrganization.id)
+        : mappedOrganizations
+
+      setOrganizations(scopedOrganizations)
     } catch (error) {
-      console.error('Error fetching organizations:', error)
+      showToast('error', 'Failed to load organizations')
     }
-  }, [currentUser])
+  }, [currentUser, selectedOrganization, showToast])
 
   const fetchDepartments = useCallback(async () => {
     try {
-      let deptsQuery
-      if (currentUser?.role === 'app_admin') {
-        deptsQuery = query(collection(db, 'departments'), orderBy('name'))
-      } else if (currentUser?.role === 'org_admin') {
-        // Get departments for organizations where user is admin
-        const userOrgs = organizations.filter(org => org.adminIds.includes(currentUser.id))
-        if (userOrgs.length === 0) return
-        
-        deptsQuery = query(
-          collection(db, 'departments'),
-          where('organizationId', 'in', userOrgs.map(org => org.id)),
-          orderBy('name')
-        )
-      } else {
+      if (!currentUser || (currentUser.role !== 'app_admin' && currentUser.role !== 'org_admin')) {
         return
       }
 
-      const deptsSnapshot = await getDocs(deptsQuery)
-      const deptData = deptsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department))
-      setDepartments(deptData)
+      const scopedOrgIds = selectedOrganization
+        ? [selectedOrganization.id]
+        : currentUser.role === 'org_admin'
+          ? organizations.filter((org) => org.adminIds.includes(currentUser.id)).map((org) => org.id)
+          : organizations.map((org) => org.id)
+
+      const deptData = await departmentsApi.list({ organizationIds: scopedOrgIds })
+      const mapped = deptData.map(
+        (department) =>
+          ({
+            id: department.id,
+            name: department.name,
+            description: department.description || '',
+            organizationId: department.organization_id,
+            managerId: department.manager_id || '',
+            memberIds: department.member_ids || [],
+            createdAt: new Date(department.created_at),
+            updatedAt: new Date(department.updated_at)
+          }) as Department
+      )
+
+      mapped.sort((a, b) => a.name.localeCompare(b.name))
+      setDepartments(mapped)
     } catch (error) {
-      console.error('Error fetching departments:', error)
+      showToast('error', 'Failed to load departments')
     }
-  }, [currentUser, organizations])
+  }, [currentUser, organizations, selectedOrganization, showToast])
 
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true)
-      let usersQuery
-      
-      if (currentUser?.role === 'app_admin') {
-        usersQuery = query(collection(db, 'users'), orderBy('name'))
-      } else if (currentUser?.role === 'org_admin') {
-        // Get users from organizations where current user is admin
-        const userOrgs = organizations.filter(org => org.adminIds.includes(currentUser.id))
-        if (userOrgs.length === 0) {
-          setUsers([])
-          return
-        }
-        
-        usersQuery = query(
-          collection(db, 'users'),
-          where('organizationIds', 'array-contains-any', userOrgs.map(org => org.id)),
-          orderBy('name')
-        )
-      } else {
+      if (!currentUser || (currentUser.role !== 'app_admin' && currentUser.role !== 'org_admin')) {
         setUsers([])
         return
       }
 
-      const usersSnapshot = await getDocs(usersQuery)
-      const userData: UserWithDetails[] = []
-      
-      for (const userDoc of usersSnapshot.docs) {
-        const user = { id: userDoc.id, ...userDoc.data() } as UserType
-        
-        // Get organization names
-        const orgNames = await Promise.all(
-          user.organizationIds.map(async (orgId) => {
-            const orgDoc = await getDoc(doc(db, 'organizations', orgId))
-            return orgDoc.exists() ? orgDoc.data().name : 'Unknown'
-          })
-        )
-        
-        // Get department names
-        const deptNames = await Promise.all(
-          user.departmentIds.map(async (deptId) => {
-            const deptDoc = await getDoc(doc(db, 'departments', deptId))
-            return deptDoc.exists() ? deptDoc.data().name : 'Unknown'
-          })
-        )
-        
-        userData.push({
-          ...user,
-          organizationNames: orgNames,
-          departmentNames: deptNames
-        })
-      }
-      
-      setUsers(userData)
+      const userData = await usersApi.list({
+        organizationId: selectedOrganization?.id
+      })
+      const mapped: UserWithDetails[] = userData.map((user) => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        avatar: user.avatar,
+        createdAt: new Date(user.created_at),
+        lastLogin: user.last_login ? new Date(user.last_login) : undefined,
+        isActive: user.is_active,
+        organizationIds: user.organization_ids,
+        departmentIds: user.department_ids,
+        preferences: user.preferences,
+        organizationNames: user.organization_names || [],
+        departmentNames: user.department_names || []
+      }))
+      setUsers(mapped)
     } catch (error) {
-      console.error('Error fetching users:', error)
       showToast('error', 'Failed to load users')
     } finally {
       setLoading(false)
     }
-  }, [currentUser, organizations, showToast])
+  }, [currentUser, selectedOrganization, showToast])
 
   useEffect(() => {
     fetchOrganizations()
   }, [fetchOrganizations])
 
   useEffect(() => {
-    if (organizations.length > 0) {
-      fetchDepartments()
-    }
+    fetchDepartments()
   }, [fetchDepartments, organizations])
 
   useEffect(() => {
-    if (organizations.length > 0) {
-      fetchUsers()
-    }
-  }, [fetchUsers, organizations])
+    fetchUsers()
+  }, [fetchUsers])
 
   // Check permissions
   if (!currentUser || !canManageUsers(currentUser)) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <Shield className="mx-auto h-12 w-12 text-gray-400" />
           <h2 className="mt-4 text-xl font-semibold text-gray-900 dark:text-white">
@@ -218,50 +193,30 @@ const UserManagement: React.FC = () => {
       showToast('error', 'Password is required for new users')
       return
     }
+    if (formData.organizationIds.length === 0) {
+      showToast('error', 'Select at least one organization')
+      return
+    }
 
     try {
       if (editingUser) {
         // Update existing user
-        await updateDoc(doc(db, 'users', editingUser.id), {
+        await usersApi.update(editingUser.id, {
           name: formData.name,
           role: formData.role,
-          organizationIds: formData.organizationIds,
-          departmentIds: formData.departmentIds,
-          updatedAt: new Date()
+          organization_ids: formData.organizationIds,
+          department_ids: formData.departmentIds
         })
         showToast('success', 'User updated successfully')
       } else {
         // Create new user
-        const { user: firebaseUser } = await createUserWithEmailAndPassword(
-          auth, 
-          formData.email, 
-          formData.password
-        )
-        
-        await updateProfile(firebaseUser, { displayName: formData.name })
-        
-        // Create user document in Firestore
-        await addDoc(collection(db, 'users'), {
+        await usersApi.create({
           email: formData.email,
           name: formData.name,
+          password: formData.password,
           role: formData.role,
-          organizationIds: formData.organizationIds,
-          departmentIds: formData.departmentIds,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isActive: true,
-          createdBy: currentUser.id,
-          preferences: {
-            theme: 'system',
-            currency: 'RWF',
-            language: 'en',
-            notifications: {
-              email: true,
-              push: true,
-              budgetAlerts: true,
-              approvalRequests: true
-            }
-          }
+          organization_ids: formData.organizationIds,
+          department_ids: formData.departmentIds
         })
         showToast('success', 'User created successfully')
       }
@@ -273,12 +228,11 @@ const UserManagement: React.FC = () => {
         email: '',
         password: '',
         role: 'user',
-        organizationIds: [],
+        organizationIds: selectedOrganization ? [selectedOrganization.id] : [],
         departmentIds: []
       })
       fetchUsers()
     } catch (error: any) {
-      console.error('Error saving user:', error)
       showToast('error', error.message || 'Failed to save user')
     }
   }
@@ -302,25 +256,20 @@ const UserManagement: React.FC = () => {
     }
 
     try {
-      await deleteDoc(doc(db, 'users', userId))
+      await usersApi.delete(userId)
       showToast('success', 'User deleted successfully')
       fetchUsers()
     } catch (error) {
-      console.error('Error deleting user:', error)
       showToast('error', 'Failed to delete user')
     }
   }
 
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        isActive: !currentStatus,
-        updatedAt: new Date()
-      })
+      await usersApi.updateStatus(userId, !currentStatus)
       showToast('success', `User ${!currentStatus ? 'activated' : 'deactivated'} successfully`)
       fetchUsers()
     } catch (error) {
-      console.error('Error updating user status:', error)
       showToast('error', 'Failed to update user status')
     }
   }
@@ -338,12 +287,13 @@ const UserManagement: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingUser(null)
+    const defaultOrganizationIds = selectedOrganization ? [selectedOrganization.id] : []
     setFormData({
       name: '',
       email: '',
       password: '',
       role: 'user',
-      organizationIds: [],
+      organizationIds: defaultOrganizationIds,
       departmentIds: []
     })
     setIsCreateModalOpen(true)
@@ -367,8 +317,7 @@ const UserManagement: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -698,7 +647,6 @@ const UserManagement: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }

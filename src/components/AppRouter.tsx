@@ -1,9 +1,11 @@
-import React, { Suspense, useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import React, { Suspense } from 'react'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { UserRole } from '../types/user'
+import AppShell from './layout/AppShell'
 import LoadingSpinner from './shared/LoadingSpinner'
+import PageLoadingState from './shared/PageLoadingState'
 
-// Lazy load components
 const Dashboard = React.lazy(() => import('./dashboard/Dashboard'))
 const LoginPage = React.lazy(() => import('./auth/LoginPage'))
 const RegisterPage = React.lazy(() => import('./auth/RegisterPage'))
@@ -15,90 +17,159 @@ const DonorManagement = React.lazy(() => import('./donors/DonorManagement'))
 const ReportsPage = React.lazy(() => import('./reports/ReportsPage'))
 const SettingsPage = React.lazy(() => import('./settings/SettingsPage'))
 
-const AppRouter: React.FC = () => {
-  const { currentUser, selectedOrganization, loading } = useAuth()
-  const location = useLocation()
-  const navigate = useNavigate()
+const FullPageLoading: React.FC = () => (
+  <div className="min-h-screen">
+    <LoadingSpinner className="min-h-screen" />
+  </div>
+)
 
-  useEffect(() => {
-    console.log('AppRouter redirect check:')
-    console.log('  currentUser:', currentUser)
-    console.log('  selectedOrganization:', selectedOrganization)
-    console.log('  pathname:', location.pathname)
-    
-    if (loading) {
-      console.log('AppRouter: Still loading, skipping redirect logic')
-      return
-    }
-    
-    // Don't interfere with login/register pages
-    if (location.pathname === '/login' || location.pathname === '/register') {
-      console.log('AppRouter: On auth page, skipping redirect logic')
-      return
-    }
-    
-    if (
-      currentUser &&
-      !selectedOrganization &&
-      location.pathname !== '/select-organization'
-    ) {
-      console.log('AppRouter: Redirecting to /select-organization')
-      navigate('/select-organization', { replace: true })
-      setTimeout(() => {
-        if (window.location.pathname !== '/select-organization') {
-          console.log('AppRouter: Hard redirect to /select-organization')
-          window.location.replace('/select-organization')
-        }
-      }, 200)
-    } else if (currentUser && selectedOrganization && location.pathname === '/select-organization') {
-      console.log('AppRouter: User has organization selected but still on selector page, redirecting to dashboard')
-      navigate('/', { replace: true })
-    }
-  }, [currentUser, selectedOrganization, location.pathname, navigate, loading])
+const LazyPage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <Suspense fallback={<PageLoadingState />}>{children}</Suspense>
+)
+
+const RequireOrganization: React.FC = () => {
+  const { selectedOrganization } = useAuth()
+  const location = useLocation()
+
+  if (!selectedOrganization) {
+    return <Navigate to="/select-organization" replace state={{ from: location.pathname }} />
+  }
+
+  return <Outlet />
+}
+
+const RequireRole: React.FC<{ roles: UserRole[] }> = ({ roles }) => {
+  const { currentUser } = useAuth()
+
+  if (!currentUser || !roles.includes(currentUser.role)) {
+    return <Navigate to="/" replace />
+  }
+
+  return <Outlet />
+}
+
+const AppRouter: React.FC = () => {
+  const { currentUser, loading, selectedOrganization } = useAuth()
 
   if (loading) {
-    return <LoadingSpinner />
+    return <FullPageLoading />
+  }
+
+  if (!currentUser) {
+    return (
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <Suspense fallback={<FullPageLoading />}>
+              <LoginPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <Suspense fallback={<FullPageLoading />}>
+              <RegisterPage />
+            </Suspense>
+          }
+        />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
   }
 
   return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <Routes>
-        {currentUser ? (
-          <>
-            {/* If user is logged in but hasn't selected organization */}
-            {!selectedOrganization ? (
-              <>
-                <Route path="/select-organization" element={<OrganizationSelector />} />
-                <Route path="*" element={<Navigate to="/select-organization" replace />} />
-              </>
-            ) : (
-              <>
-                {/* Main app routes - only accessible after organization selection */}
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/departments" element={<DepartmentList />} />
-                <Route path="/donors" element={<DonorManagement />} />
-                <Route path="/reports" element={<ReportsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/select-organization" element={<OrganizationSelector />} />
-                
-                {/* Admin routes */}
-                <Route path="/admin/organizations" element={<OrganizationManagement />} />
-                <Route path="/admin/users" element={<UserManagement />} />
-                
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </>
-        )}
-      </Routes>
-    </Suspense>
+    <Routes>
+      <Route
+        path="/select-organization"
+        element={
+          <Suspense fallback={<FullPageLoading />}>
+            <OrganizationSelector />
+          </Suspense>
+        }
+      />
+
+      <Route element={<RequireOrganization />}>
+        <Route element={<AppShell />}>
+          <Route
+            index
+            element={
+              <LazyPage>
+                <Dashboard />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <LazyPage>
+                <Dashboard />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="/departments"
+            element={
+              <LazyPage>
+                <DepartmentList />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="/donors"
+            element={
+              <LazyPage>
+                <DonorManagement />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <LazyPage>
+                <ReportsPage />
+              </LazyPage>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <LazyPage>
+                <SettingsPage />
+              </LazyPage>
+            }
+          />
+
+          <Route element={<RequireRole roles={['app_admin']} />}>
+            <Route
+              path="/admin/organizations"
+              element={
+                <LazyPage>
+                  <OrganizationManagement />
+                </LazyPage>
+              }
+            />
+          </Route>
+
+          <Route element={<RequireRole roles={['app_admin', 'org_admin']} />}>
+            <Route
+              path="/admin/users"
+              element={
+                <LazyPage>
+                  <UserManagement />
+                </LazyPage>
+              }
+            />
+          </Route>
+        </Route>
+      </Route>
+
+      <Route
+        path="*"
+        element={<Navigate to={selectedOrganization ? '/' : '/select-organization'} replace />}
+      />
+    </Routes>
   )
 }
 

@@ -1,0 +1,2 @@
+"""Budget manager backend package."""
+
